@@ -18,8 +18,12 @@ consolidar en un único archivo JSON o CSV para una carpeta completa.
 - Git y pip.
 
 Las rutas de los ejecutables de Tesseract y Poppler están configuradas en
-`src/py_idp_invoice_extractor/extractor.py`. Ajusta `tesseract_cmd` y
-`POPPLER_PATH` a las ubicaciones donde los hayas instalado en tu equipo.
+`.env` mediante `TESSERACT_CMD` (ruta al ejecutable
+`tesseract.exe`) y `POPPLER_PATH` (carpeta `bin` de Poppler). Copia
+`.env.example` a `.env` y cambia esos valores si instalaste las herramientas
+en otras ubicaciones. Si las variables no están definidas, se usan las rutas
+por defecto de Windows incluidas en `extractor.py`; ya no es necesario editar
+el código para configurar instalaciones distintas.
 
 ## Instalación
 
@@ -81,6 +85,17 @@ python -m py_idp_invoice_extractor.cli batch data/input --output output/lote.csv
 Si se omite `--format`, el formato predeterminado es JSON. La CLI muestra una
 línea por PDF, seguida del resumen de procesados exitosamente y fallidos.
 
+### Interfaz web local
+
+Inicia el servidor de desarrollo desde la raíz del repositorio:
+
+```powershell
+uvicorn py_idp_invoice_extractor.web:app --reload
+```
+
+Abre `http://127.0.0.1:8000` en el navegador y selecciona un PDF de hasta 10 MB.
+El resultado de la extracción se muestra como JSON en la página.
+
 ### Ejemplo de salida JSON
 
 La ejecución individual devuelve un objeto con los campos de factura y el texto
@@ -111,6 +126,8 @@ fallos.
 
 - `src/py_idp_invoice_extractor/cli.py`: comandos para procesar PDFs individuales
   o carpetas, mostrar progreso y escribir JSON o CSV.
+- `src/py_idp_invoice_extractor/web.py`: interfaz web FastAPI para subir un PDF y
+  recibir los datos extraídos como JSON.
 - `src/py_idp_invoice_extractor/extractor.py`: extracción de texto con
   `pdfplumber`, OCR de PDFs escaneados y análisis heurístico de campos.
 - `src/py_idp_invoice_extractor/models.py`: modelo `InvoiceData`, que define los
@@ -121,6 +138,8 @@ fallos.
   interfaz del paquete.
 - `tests/test_extractor.py`: pruebas de extracción, parseo OCR y procesamiento
   por lotes en JSON y CSV.
+- `tests/test_web.py`: pruebas de la página web, validación de archivos, límite
+  de tamaño y respuesta del endpoint de extracción.
 - `data/input/`: carpeta sugerida para PDFs de entrada.
 - `output/`: carpeta sugerida para resultados.
 
