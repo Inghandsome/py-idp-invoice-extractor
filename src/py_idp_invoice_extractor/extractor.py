@@ -20,13 +20,14 @@ except ImportError:  # pragma: no cover
     pytesseract = None
     convert_from_path = None
 
-TESSERACT_CMD = os.getenv(
-    "TESSERACT_CMD",
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+IS_WINDOWS = os.name == "nt"
+TESSERACT_CMD = os.getenv("TESSERACT_CMD") or (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if IS_WINDOWS
+    else "tesseract"
 )
-POPPLER_PATH = os.getenv(
-    "POPPLER_PATH",
-    r"C:\poppler-26.09.0\Library\bin",
+POPPLER_PATH = os.getenv("POPPLER_PATH") or (
+    r"C:\poppler-26.09.0\Library\bin" if IS_WINDOWS else None
 )
 
 if pytesseract is not None:

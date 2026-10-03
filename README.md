@@ -96,6 +96,27 @@ uvicorn py_idp_invoice_extractor.web:app --reload
 Abre `http://127.0.0.1:8000` en el navegador y selecciona un PDF de hasta 10 MB.
 El resultado de la extracción se muestra como JSON en la página.
 
+### Construir y probar con Docker
+
+Desde la raíz del repositorio, construye la imagen:
+
+```powershell
+docker build -t py-idp-invoice-extractor .
+```
+
+Inicia el contenedor localmente. Por defecto, escucha en el puerto `10000`:
+
+```powershell
+docker run --rm -p 10000:10000 py-idp-invoice-extractor
+```
+
+Abre `http://localhost:10000` para probar el formulario. La imagen instala
+Tesseract con el paquete de idioma español y Poppler; en Linux, el extractor usa
+`tesseract` y encuentra las herramientas de Poppler desde el `PATH` del sistema.
+Para usar otro puerto local, pasa el mismo valor en `PORT` y en el puerto del
+contenedor, por ejemplo `docker run --rm -e PORT=8080 -p 8080:8080
+py-idp-invoice-extractor`.
+
 ### Ejemplo de salida JSON
 
 La ejecución individual devuelve un objeto con los campos de factura y el texto
