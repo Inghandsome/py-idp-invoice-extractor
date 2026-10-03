@@ -189,6 +189,9 @@ python -m pytest tests/test_extractor.py -q
   `16 de junio de 2025` cuando están junto a una etiqueta de fecha admitida.
 - La calidad del OCR depende de la resolución y legibilidad del escaneo, y de
   que Tesseract y Poppler estén instalados y sus rutas estén bien configuradas.
+- El demo público en Render usa un plan con memoria limitada (512 MB) y reduce
+  el OCR a 150 DPI. Aun así, PDFs grandes o con muchas páginas pueden consumir
+  demasiada memoria y fallar; localmente se conserva la resolución de 300 DPI.
 - El procesamiento por lotes no entra en subcarpetas; procesa solo los PDFs
   ubicados directamente en la carpeta indicada.
 - `pdfplumber` y OCR pueden no recuperar texto de PDFs dañados o protegidos. En

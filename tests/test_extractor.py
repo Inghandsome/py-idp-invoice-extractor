@@ -11,7 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet
 
 from py_idp_invoice_extractor import cli
-from py_idp_invoice_extractor.extractor import InvoiceExtractor
+from py_idp_invoice_extractor.extractor import InvoiceExtractor, _get_ocr_dpi
 
 
 def _create_invoice_pdf(path: Path) -> None:
@@ -60,6 +60,17 @@ def test_extract_invoice_from_pdf(tmp_path):
     assert result.subtotal == 1000.0
     assert result.tax == 210.0
     assert result.total == 1210.0
+
+
+def test_ocr_dpi_is_reduced_on_render(monkeypatch):
+    monkeypatch.delenv("RENDER", raising=False)
+    assert _get_ocr_dpi() == 300
+
+    monkeypatch.setenv("RENDER", "true")
+    assert _get_ocr_dpi() == 150
+
+    monkeypatch.setenv("RENDER", "false")
+    assert _get_ocr_dpi() == 300
 
 
 def test_parse_ocr_invoice_with_spanish_dates_and_noisy_symbols():

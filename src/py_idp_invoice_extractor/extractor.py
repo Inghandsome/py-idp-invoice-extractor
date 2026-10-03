@@ -34,6 +34,10 @@ if pytesseract is not None:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 
+def _get_ocr_dpi() -> int:
+    return 150 if os.getenv("RENDER", "").strip().lower() == "true" else 300
+
+
 class InvoiceExtractor:
     """Extrae datos de facturas a partir de PDFs normales o escaneados."""
 
@@ -95,7 +99,11 @@ class InvoiceExtractor:
 
     def _extract_with_ocr(self, pdf_path: Path) -> str:
         try:
-            images = convert_from_path(str(pdf_path), dpi=300, poppler_path=POPPLER_PATH)
+            images = convert_from_path(
+                str(pdf_path),
+                dpi=_get_ocr_dpi(),
+                poppler_path=POPPLER_PATH,
+            )
             chunks = []
             for image in images:
                 chunks.append(pytesseract.image_to_string(image, config="--psm 6"))
