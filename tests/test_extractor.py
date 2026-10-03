@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import csv
+import json
 from pathlib import Path
 
+import pytest
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 
+from py_idp_invoice_extractor import cli
 from py_idp_invoice_extractor.extractor import InvoiceExtractor
 
 
@@ -94,3 +98,54 @@ Calle 123, Ciudad, Estado, Pais. C.P. 12345"""
     assert parsed["currency"] is None
     assert issue_date_parsed["issue_date"] == "16 de junio de 2025"
     assert issue_date_parsed["invoice_number"] == "ABC 123"
+
+
+@pytest.mark.parametrize("output_format", ["json", "csv"])
+def test_batch_processes_all_pdfs_and_records_failures(
+    tmp_path, monkeypatch, capsys, output_format
+):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    _create_invoice_pdf(input_dir / "good.pdf")
+    (input_dir / "broken.pdf").write_text("not a real PDF", encoding="utf-8")
+    output_path = tmp_path / f"results.{output_format}"
+
+    original_extract_text = InvoiceExtractor._extract_text
+
+    def extract_text_with_failure(self, pdf_path):
+        if pdf_path.name == "broken.pdf":
+            raise RuntimeError("OCR failure")
+        return original_extract_text(self, pdf_path)
+
+    monkeypatch.setattr(InvoiceExtractor, "_extract_text", extract_text_with_failure)
+
+    cli.main(
+        [
+            "batch",
+            str(input_dir),
+            "--output",
+            str(output_path),
+            "--format",
+            output_format,
+        ]
+    )
+
+    console = capsys.readouterr().out
+    assert "Procesando factura 1 de 2: broken.pdf" in console
+    assert "Procesando factura 2 de 2: good.pdf" in console
+    assert "1 procesadas exitosamente" in console
+    assert "1 fallidas" in console
+
+    if output_format == "json":
+        results = json.loads(output_path.read_text(encoding="utf-8"))
+    else:
+        with output_path.open(encoding="utf-8-sig", newline="") as output_file:
+            results = list(csv.DictReader(output_file))
+
+    assert len(results) == 2
+    assert results[0]["file"] == "broken.pdf"
+    assert results[0]["status"] == "error"
+    assert "OCR failure" in results[0]["error"]
+    assert results[1]["file"] == "good.pdf"
+    assert results[1]["status"] == "success"
+    assert results[1]["vendor_name"] == "Contoso S.L."
