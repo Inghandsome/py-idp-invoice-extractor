@@ -1,73 +1,155 @@
-# py-idp-invoice-extractor
+# Extractor de facturas PDF
 
-Extractor de datos de facturas en PDF con IA, basado en py-idp para procesado inteligente de documentos.
+Herramienta Python para extraer campos habituales de facturas en PDF: proveedor,
+número de factura, fechas, subtotal, impuestos, total y moneda. Usa `pdfplumber`
+para PDFs con texto nativo y `pytesseract` con `pdf2image` para aplicar OCR a
+PDFs escaneados.
 
-## Objetivo
+El resultado se puede imprimir como JSON, guardar para un PDF individual o
+consolidar en un único archivo JSON o CSV para una carpeta completa.
 
-Construir una herramienta que lea facturas en PDF y extraiga campos clave como:
+## Requisitos previos
 
-- nombre del proveedor
-- número de factura
-- fecha de emisión
-- fecha de vencimiento
-- subtotal
-- impuestos
-- total
-- moneda
+- Python 3.11 o posterior.
+- Tesseract OCR instalado en Windows. Descarga:
+  [UB Mannheim Tesseract builds](https://github.com/UB-Mannheim/tesseract/wiki)
+- Poppler para Windows. Descarga:
+  [Poppler for Windows releases](https://github.com/oschwartz10612/poppler-windows/releases/)
+- Git y pip.
 
-## Estructura inicial del proyecto
-
-- `src/py_idp_invoice_extractor/` — código fuente principal
-- `pyproject.toml` — configuración del proyecto
-- `requirements.txt` — dependencias mínimas
-- `data/` — para añadir PDFs de pruebas
-- `output/` — salida JSON o archivos procesados
-
-## Requisitos
-
-- Python 3.10+
-- pip
+Las rutas de los ejecutables de Tesseract y Poppler están configuradas en
+`src/py_idp_invoice_extractor/extractor.py`. Ajusta `tesseract_cmd` y
+`POPPLER_PATH` a las ubicaciones donde los hayas instalado en tu equipo.
 
 ## Instalación
 
-```bash
-python -m venv .venv
-. .venv/bin/activate  # Linux/macOS
-# o .\.venv\Scripts\activate  # Windows PowerShell
-pip install -r requirements.txt
+Abre PowerShell y clona el repositorio:
+
+```powershell
+git clone URL_DEL_REPOSITORIO
+cd py-idp-invoice-extractor
 ```
+
+Reemplaza `URL_DEL_REPOSITORIO` por la URL Git del proyecto. Crea y activa un
+entorno virtual, instala las dependencias y registra el paquete localmente:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+Si PowerShell bloquea la activación del entorno, puedes invocar sus ejecutables
+directamente con `.\.venv\Scripts\python.exe` y
+`.\.venv\Scripts\pip.exe`.
 
 ## Uso
 
-Ejecuta el extractor sobre un PDF:
+### Procesar un PDF
 
-```bash
-python -m py_idp_invoice_extractor.cli "ruta/al/archivo.pdf"
+Imprime el resultado JSON en la consola:
+
+```powershell
+python -m py_idp_invoice_extractor.cli data/input/factura.pdf
 ```
 
-También puedes guardar el resultado en JSON:
+Guarda el resultado en un archivo:
 
-```bash
-python -m py_idp_invoice_extractor.cli "ruta/al/archivo.pdf" --output output/result.json
+```powershell
+python -m py_idp_invoice_extractor.cli data/input/factura.pdf --output output/factura.json
 ```
 
-## Estado actual
+### Procesar una carpeta
 
-Este repositorio ya tiene la estructura base de un proyecto Python para empezar a desarrollar la lógica de extracción con py-idp. La implementación actual es un esqueleto funcional para que podamos ir completando la integración real con el motor de IA y la extracción de campos.
+El comando procesa los archivos `.pdf` directamente dentro de la carpeta
+indicada, muestra el progreso y continúa si alguno falla. Cada registro incluye
+su estado; los errores se guardan en el campo `error`.
 
-## Siguientes pasos sugeridos
+Consolidado JSON:
 
-1. definir el esquema real de salida JSON
-2. conectar la lógica con py-idp y el modelo de extracción
-3. añadir pruebas con PDFs reales de facturas
-4. validar la extracción sobre varios formatos y proveedores
-5. preparar una CLI más robusta y un flujo de procesamiento por lote
+```powershell
+python -m py_idp_invoice_extractor.cli batch data/input --output output/lote.json --format json
+```
 
-## Notas
+Consolidado CSV:
 
-La configuración actual usa variables de entorno opcionales:
+```powershell
+python -m py_idp_invoice_extractor.cli batch data/input --output output/lote.csv --format csv
+```
 
-- `IDP_INPUT_DIR`
-- `IDP_OUTPUT_DIR`
-- `IDP_MODEL_NAME`
-- `IDP_TEMPERATURE`
+Si se omite `--format`, el formato predeterminado es JSON. La CLI muestra una
+línea por PDF, seguida del resumen de procesados exitosamente y fallidos.
+
+### Ejemplo de salida JSON
+
+La ejecución individual devuelve un objeto con los campos de factura y el texto
+extraído en `raw_fields`:
+
+```json
+{
+  "vendor_name": "Contoso S.L.",
+  "invoice_number": "INV-2048",
+  "issue_date": "2026-09-15",
+  "due_date": "2026-09-30",
+  "subtotal": 1000.0,
+  "tax": 210.0,
+  "total": 1210.0,
+  "currency": "EUR",
+  "raw_fields": {
+    "source_file": "data/input/factura.pdf",
+    "raw_text": "Contoso S.L.\nInvoice #INV-2048\n..."
+  }
+}
+```
+
+El modo por lotes produce una lista de objetos similares, con los campos
+adicionales `file`, `status` y `error` para identificar el archivo y registrar
+fallos.
+
+## Estructura del proyecto
+
+- `src/py_idp_invoice_extractor/cli.py`: comandos para procesar PDFs individuales
+  o carpetas, mostrar progreso y escribir JSON o CSV.
+- `src/py_idp_invoice_extractor/extractor.py`: extracción de texto con
+  `pdfplumber`, OCR de PDFs escaneados y análisis heurístico de campos.
+- `src/py_idp_invoice_extractor/models.py`: modelo `InvoiceData`, que define los
+  campos devueltos para cada factura.
+- `src/py_idp_invoice_extractor/config.py`: carga variables de entorno
+  opcionales para las rutas de entrada/salida y ajustes del modelo.
+- `src/py_idp_invoice_extractor/__init__.py`: expone `InvoiceExtractor` como
+  interfaz del paquete.
+- `tests/test_extractor.py`: pruebas de extracción, parseo OCR y procesamiento
+  por lotes en JSON y CSV.
+- `data/input/`: carpeta sugerida para PDFs de entrada.
+- `output/`: carpeta sugerida para resultados.
+
+## Pruebas
+
+Con el entorno virtual activado, ejecuta:
+
+```powershell
+python -m pytest
+```
+
+Para ejecutar solo las pruebas del extractor:
+
+```powershell
+python -m pytest tests/test_extractor.py -q
+```
+
+## Limitaciones conocidas
+
+- La extracción de campos usa reglas y patrones; las facturas con diseños muy
+  distintos pueden requerir ajustes.
+- El OCR puede confundir símbolos de moneda. Si detecta símbolos contradictorios,
+  la moneda puede quedar como `null`; revisa `raw_fields.raw_text`.
+- Las fechas de emisión no se pueden extraer si no aparecen en el documento o si
+  el OCR no las reconoce. Las fechas en palabras se reconocen en patrones como
+  `16 de junio de 2025` cuando están junto a una etiqueta de fecha admitida.
+- La calidad del OCR depende de la resolución y legibilidad del escaneo, y de
+  que Tesseract y Poppler estén instalados y sus rutas estén bien configuradas.
+- El procesamiento por lotes no entra en subcarpetas; procesa solo los PDFs
+  ubicados directamente en la carpeta indicada.
+- `pdfplumber` y OCR pueden no recuperar texto de PDFs dañados o protegidos. En
+  esos casos, inspecciona el estado del registro y el contenido extraído.
