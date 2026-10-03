@@ -56,3 +56,41 @@ def test_extract_invoice_from_pdf(tmp_path):
     assert result.subtotal == 1000.0
     assert result.tax == 210.0
     assert result.total == 1210.0
+
+
+def test_parse_ocr_invoice_with_spanish_dates_and_noisy_symbols():
+    text = """CLIENTE: Factura n.? 12345
+(55) 1234 5678
+Calle 123, Ciudad, Estado, Pais. C.P. 12345
+Articulo Cantidad =‘ Preelo Total
+unitane
+Top de camisola Eqgshell 1 $500 $500
+Camisa con cuello cubano Zz £300 £600
+Vestido floral de algodan 1 $400 $400
+Subtotal $1,500
+IVA (16%) $240
+Total $1740
+{Muchas gracias!
+INFORMACION DE PAGO
+Banco Norte
+Mambre de la cuenta: Irma Lopez Rios C irq Hernandez Lo:
+N.° de cuenta: 1234 567289 SONI FCrnanuies Loz
+Pagar antes de: 5 de julio de 2025 Calle 123, Ciudad, Estado, Pais. C.P. 12345
+Sandra Hernandez Loza
+Calle 123, Ciudad, Estado, Pais. C.P. 12345"""
+    extractor = InvoiceExtractor()
+
+    parsed = extractor._parse_invoice_text(text)
+    issue_date_text = "Factura n.º ABC 123\nFecha de emisión: 16 de junio de 2025"
+    issue_date_parsed = extractor._parse_invoice_text(issue_date_text)
+
+    assert parsed["vendor_name"] == "Sandra Hernandez Loza"
+    assert parsed["invoice_number"] == "12345"
+    assert parsed["issue_date"] is None
+    assert parsed["due_date"] == "5 de julio de 2025"
+    assert parsed["subtotal"] == 1500.0
+    assert parsed["tax"] == 240.0
+    assert parsed["total"] == 1740.0
+    assert parsed["currency"] is None
+    assert issue_date_parsed["issue_date"] == "16 de junio de 2025"
+    assert issue_date_parsed["invoice_number"] == "ABC 123"

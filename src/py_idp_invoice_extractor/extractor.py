@@ -19,6 +19,11 @@ except ImportError:  # pragma: no cover
     pytesseract = None
     convert_from_path = None
 
+if pytesseract is not None:
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+POPPLER_PATH = r"C:\poppler-26.09.0\Library\bin"
+
 
 class InvoiceExtractor:
     """Extrae datos de facturas a partir de PDFs normales o escaneados."""
@@ -81,10 +86,17 @@ class InvoiceExtractor:
 
     def _extract_with_ocr(self, pdf_path: Path) -> str:
         try:
-            images = convert_from_path(str(pdf_path), dpi=300)
+            images = convert_from_path(str(pdf_path), dpi=300, poppler_path=POPPLER_PATH)
             chunks = []
             for image in images:
                 chunks.append(pytesseract.image_to_string(image, config="--psm 6"))
+                width, height = image.size
+                footer = image.crop(
+                    (int(width * 0.42), int(height * 0.82), int(width * 0.98), int(height * 0.98))
+                )
+                footer_text = pytesseract.image_to_string(footer, config="--psm 6")
+                if footer_text:
+                    chunks.append(footer_text)
             return "\n".join(chunks).strip()
         except Exception:
             return ""
@@ -95,16 +107,16 @@ class InvoiceExtractor:
         vendor_name = self._find_vendor_name(lines)
         invoice_number = self._find_first_match(
             normalized,
-            r"(?:invoice(?:\s*no|\s*#)?|factura(?:\s*no|\s*#)?|invoice\s+number|n[úu]mero\s+de\s+factura|num\.?\s*factura)[^A-Z0-9-]*([A-Z0-9-]+)",
+            r"(?:invoice|factura)\s*(?:(?:n(?:[.º°o]|[.]\s*[º°])?|num(?:ero)?|number|no\.?|#)\s*)?[:#º°.,?¿¡\-]*\s*([A-Z0-9]+(?:[ ./_-][A-Z0-9]+){0,3}?)(?=\s*(?:\(|fecha|date|issue|due|pagar|$))",
             flags=re.IGNORECASE,
         )
-        issue_date = self._find_date(normalized, r"(?:issue date|issued on|fecha de emisi[oó]n|fecha de emisión|emitido el|fecha emisi[oó]n)", "issue")
-        due_date = self._find_date(normalized, r"(?:due date|payment due|vencimiento|fecha de vencimiento|fecha vencimiento)", "due")
+        issue_date = self._find_date(normalized, r"(?:issue date|issued on|fecha de emisi[oó]n|emitido el|fecha emisi[oó]n)", "issue")
+        due_date = self._find_date(normalized, r"(?:due date|payment due|pagar antes de|vencimiento|fecha de vencimiento|fecha vencimiento)", "due")
         currency = self._find_currency(normalized)
         amounts = self._find_amounts(lines)
         subtotal = self._find_amount_by_label(lines, r"subtotal|base imponible|net total|net amount")
         tax = self._find_amount_by_label(lines, r"tax|vat|iva|impuesto")
-        total = self._find_amount_by_label(lines, r"total|total due|importe total")
+        total = self._find_amount_by_label(lines, r"\b(?:total(?:\s+due)?|importe total)\b")
 
         if subtotal is None and amounts:
             subtotal = amounts[0]
@@ -127,12 +139,62 @@ class InvoiceExtractor:
         }
 
     def _find_vendor_name(self, lines: list[str]) -> str | None:
-        for line in lines:
-            if re.search(r"(?:invoice|factura|total|subtotal|tax|vat|iva)", line, re.IGNORECASE):
+        seller_labels = r"(?:vendedor|proveedor|seller|emisor|issued\s+by|from)\s*[:：-]\s*(.+)"
+        for line in reversed(lines):
+            match = re.search(seller_labels, line, re.IGNORECASE)
+            if match:
+                candidate = self._clean_vendor_candidate(match.group(1))
+                if candidate:
+                    return candidate
+
+        payment_start = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if re.search(r"(?:informaci[oó]n|datos)\s+de\s+pago|payment\s+(?:information|details)", line, re.IGNORECASE)
+            ),
+            None,
+        )
+        if payment_start is not None:
+            for line in reversed(lines[payment_start + 1 :]):
+                if self._is_non_vendor_line(line):
+                    continue
+                name = re.search(
+                    r"\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){1,3})\b",
+                    line,
+                )
+                if name:
+                    return name.group(1)
+
+        for line in lines[:5]:
+            if re.search(r"(?:invoice|factura)", line, re.IGNORECASE):
+                break
+            if self._is_non_vendor_line(line):
                 continue
-            if len(line) <= 120 and not re.fullmatch(r"[\d\s\-#.:/()]+", line):
-                return line
-        return lines[0] if lines else None
+            candidate = self._clean_vendor_candidate(line)
+            if candidate:
+                return candidate
+        return None
+
+    def _is_non_vendor_line(self, line: str) -> bool:
+        excluded = (
+            r"(?:cliente|calle|avenida|av\.?|street|road|c\.?p\.?|código postal|postal|"
+            r"tel[eé]fono|phone|banco|bank|cuenta|account|pagar antes|fecha|date|"
+            r"muchas gracias|thank|invoice|factura|description|amount|art[ií]culo|"
+            r"cantidad|subtotal|total|tax|vat|iva|nombre de la cuenta|n\.?[º°]\s*de cuenta)"
+        )
+        return bool(
+            re.search(excluded, line, re.IGNORECASE)
+            or re.search(r"\d{3,}|[$£€¥₹¢?]\s*\d", line)
+        )
+
+    def _clean_vendor_candidate(self, value: str) -> str | None:
+        candidate = re.split(r"\s{2,}|\s+[|•]\s+", value.strip())[0].strip(" :,-")
+        if len(candidate) < 3 or not re.search(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", candidate):
+            return None
+        if re.search(r"\d{3,}", candidate):
+            return None
+        return candidate[:120]
 
     def _find_first_match(self, text: str, pattern: str, flags: int = 0) -> str | None:
         match = re.search(pattern, text, flags)
@@ -144,9 +206,9 @@ class InvoiceExtractor:
         return str(groups[0]).strip()
 
     def _find_date(self, text: str, pattern: str, date_type: str) -> str | None:
+        date_value = r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+de\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+\s+de\s+\d{4})"
         match = re.search(
-            r"""(?:%s)[^0-9]{0,20}(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"""
-            % pattern,
+            r"(?:%s)[^0-9]{0,40}%s" % (pattern, date_value),
             text,
             flags=re.IGNORECASE,
         )
@@ -155,11 +217,19 @@ class InvoiceExtractor:
         return None
 
     def _find_currency(self, text: str) -> str | None:
-        if re.search(r"(?:€|EUR|\?)", text, re.IGNORECASE):
+        if re.search(r"EUR|€", text, re.IGNORECASE):
             return "EUR"
-        if re.search(r"(?:\$|USD)", text, re.IGNORECASE):
+        if re.search(r"USD", text, re.IGNORECASE):
             return "USD"
-        if re.search(r"(?:£|GBP)", text, re.IGNORECASE):
+        if re.search(r"GBP", text, re.IGNORECASE):
+            return "GBP"
+        has_dollar = re.search(r"\$", text) is not None
+        has_pound = re.search(r"£", text) is not None
+        if has_dollar and has_pound:
+            return None
+        if has_dollar:
+            return "USD"
+        if has_pound:
             return "GBP"
         return None
 
@@ -167,19 +237,20 @@ class InvoiceExtractor:
         cleaned = value.strip().replace(" ", "")
         if not cleaned:
             return None
-        cleaned = cleaned.replace("€", "").replace("£", "").replace("$", "").replace("?", "")
+        cleaned = re.sub(r"[^\d.,+-]", "", cleaned)
         if "," in cleaned and "." in cleaned:
             if cleaned.rfind(".") > cleaned.rfind(","):
                 cleaned = cleaned.replace(",", "")
             else:
                 cleaned = cleaned.replace(".", "").replace(",", ".")
         elif "," in cleaned:
-            if cleaned.count(",") > 1:
+            if cleaned.count(",") > 1 or len(cleaned.rsplit(",", 1)[1]) == 3:
                 cleaned = cleaned.replace(",", "")
             else:
                 cleaned = cleaned.replace(",", ".")
-        elif "." in cleaned and cleaned.count(".") > 1:
-            cleaned = cleaned.replace(".", "")
+        elif "." in cleaned:
+            if cleaned.count(".") > 1 or len(cleaned.rsplit(".", 1)[1]) == 3:
+                cleaned = cleaned.replace(".", "")
 
         try:
             return float(cleaned)
@@ -188,10 +259,11 @@ class InvoiceExtractor:
 
     def _find_amounts(self, lines: list[str]) -> list[float]:
         values: list[float] = []
+        amount_pattern = r"(?<![A-Za-z])(?:[0-9]{1,3}(?:[.,\s][0-9]{3})+|[0-9]+)(?:[.,][0-9]{2})?(?![A-Za-z])"
         for line in lines:
-            if not re.search(r"(?:€|£|\$|EUR|USD|GBP|\?|total|subtotal|tax|vat|iva|amount|balance)", line, re.IGNORECASE):
+            if not re.search(r"(?:total|subtotal|tax|vat|iva|amount|balance|[$£€¥₹¢?])", line, re.IGNORECASE):
                 continue
-            for value in re.findall(r"(?<![A-Za-z])([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})|[0-9]+(?:[.,][0-9]{2}))", line):
+            for value in re.findall(amount_pattern, line):
                 numeric = self._parse_money_value(value)
                 if numeric is not None and numeric > 0:
                     values.append(numeric)
@@ -199,14 +271,14 @@ class InvoiceExtractor:
 
     def _find_amount_by_label(self, lines: list[str], label_pattern: str) -> float | None:
         label_re = re.compile(label_pattern, re.IGNORECASE)
+        amount_pattern = r"(?<![A-Za-z])(?:[0-9]{1,3}(?:[.,\s][0-9]{3})+|[0-9]+)(?:[.,][0-9]{2})?(?![A-Za-z])"
         for line in lines:
             if not label_re.search(line):
                 continue
-            match = re.search(r"(?<![A-Za-z])([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{2})|[0-9]+(?:[.,][0-9]{2}))", line)
-            if not match:
+            matches = re.findall(amount_pattern, line)
+            if not matches:
                 continue
-            value = match.group(1)
-            numeric = self._parse_money_value(value)
+            numeric = self._parse_money_value(matches[-1])
             if numeric is not None:
                 return numeric
         return None
